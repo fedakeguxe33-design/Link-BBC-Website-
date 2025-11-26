@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <script src="https://fpyf8.com/88/tag.min.js" data-zone="188206" async data-cfasync="false"></script>
-    <meta name="monetag" content="3e8e576eea2039822110c82cad049b21">
+    
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Link BBC</title> 
@@ -323,12 +323,18 @@
     <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore-compat.js"></script>
 
-    <script>
-        // --- Firebase Configuration ---
+       <script>
+        // --- Adsterra Direct Link & Ad Control Variables ---
+        // ⚠️ এই প্লেসহোল্ডারের জায়গায় তোমার Adsterra ডিরেক্ট লিংকটি বসাও
+        const ADSTERRA_DIRECT_LINK = 'INSERT_YOUR_ADSTERRA_DIRECT_LINK_HERE'; 
+        
+        let adsEnabled = false; 
+        
+        // ২০ সেকেন্ডের টাইমআউট এবং র্যান্ডম অ্যাড চেক টাইমআউট সেট করার জন্য ভেরিয়েবল
+        let adCheckTimeout;
+
+        // --- Firebase Configuration (যেমন ছিল) ---
         const firebaseConfig = {
-            // [নিরাপত্তা সতর্কতা]: এই API Key ফ্রন্টএন্ডে পাবলিক করা নিরাপদ,
-            // যদি তোর Firebase Security Rules (firestore/storage-এর জন্য) কঠোরভাবে সেট করা থাকে।
-            // অবশ্যই নিশ্চিত করবি যে কোনো অ্যাটাকার যেন এই কী ব্যবহার করে ডেটা রাইট/ডিলিট না করতে পারে।
             apiKey: "AIzaSyD4nW1qbPLy-BFPAXwAGViWN4G4klBNwY0",
             authDomain: "link-bbc.firebaseapp.com",
             projectId: "link-bbc",
@@ -354,10 +360,9 @@
         const modalDuration = document.getElementById('modalDuration');
         const videoDescription = document.getElementById('videoDescription');
 
-        // --- নতুন XSS স্যানিটাইজেশন ফাংশন ---
+        // --- XSS স্যানিটাইজেশন ফাংশন (যেমন ছিল) ---
         function escapeHTML(str) {
             if (typeof str !== 'string') return str;
-            // এটি HTML অ্যাট্রিবিউট এবং টেক্সটের জন্য ক্ষতিকারক অক্ষরগুলিকে নিরাপদ করে
             return str.replace(/[&<>"'/]/g, function (match) {
                 return ({
                     '&': '&amp;',
@@ -370,14 +375,13 @@
             });
         }
 
-        // --- Load Data ---
+        // --- Load Data (যেমন ছিল) ---
         async function loadMoviesFromFirestore() {
             loadingIndicator.style.display = 'block';
             try {
                 const moviesRef = db.collection("movies").orderBy("timestamp", "desc");
                 const snapshot = await moviesRef.get();
                 
-                // Firestore ডেটার সাথে ডামি মেটা-ডেটা যোগ করা (যদি তোর আসল ডেটাবেসে না থাকে)
                 allMovies = snapshot.docs.map(doc => ({ 
                     id: doc.id, 
                     ...doc.data(),
@@ -395,7 +399,7 @@
             }
         }
 
-        // --- Generate Card HTML (XSS Fixes Applied) ---
+        // --- Generate Card HTML (যেমন ছিল) ---
         function loadMovies(list) {
             grid.innerHTML = '';
             if(list.length === 0) {
@@ -407,7 +411,6 @@
                 const col = document.createElement('div');
                 col.className = 'col';
                 
-                // ডেটাবেসের ডাইনামিক ডেটা ইনজেকশনের আগে escapeHTML ব্যবহার করা হয়েছে
                 const safeTitle = escapeHTML(m.title);
                 const safePoster = escapeHTML(m.poster);
                 const safeVideo = escapeHTML(m.video);
@@ -469,9 +472,8 @@
             const movieData = allMovies.find(m => m.id === id) || {};
             
             mainPlayer.src = url;
-            videoTitle.textContent = title; // textContent ব্যবহার করা হয়েছে, যা HTML হিসেবে রেন্ডার করে না
+            videoTitle.textContent = title;
             
-            // মোডালের মেটা-ডেটা আপডেট করা
             modalYear.textContent = movieData.year || '2023';
             modalRating.textContent = `${movieData.rating || '98'}% Match`;
             modalDuration.textContent = movieData.duration || '1h 30m'; 
@@ -481,10 +483,31 @@
 
             loadRelatedVideos(id);
             
-            videoModal.show(); // একই পেজে মোডাল ওপেন হবে
+            videoModal.show();
+            
+            // মোডাল খোলার সাথে সাথেই Ad লজিক সেট করা হবে
+            setupAdLogic();
         }
 
+        // *** Adsterra পরিবর্তন: মোডাল বন্ধ করার সময় ডিরেক্ট লিঙ্কে নিয়ে যাওয়া ***
         function closeMainPlayer() {
+            // ১. যদি Ads চালু থাকে, তবে মোডাল বন্ধ করার সময় ডিরেক্ট লিঙ্কে নিয়ে যাওয়া হবে
+            if (adsEnabled) {
+                // ✅ পরিবর্তন: ADSTERRA_DIRECT_LINK ব্যবহার
+                window.open(ADSTERRA_DIRECT_LINK, '_blank'); 
+            }
+
+            // সব টাইমআউট ক্লিয়ার করা
+            if (adCheckTimeout) {
+                clearTimeout(adCheckTimeout);
+            }
+            // প্লেয়ার ইভেন্ট লিসেনার রিসেট করা
+            mainPlayer.onplay = null;
+            mainPlayer.onpause = null;
+            mainPlayer.onseeking = null; 
+            
+            adsEnabled = false; // মোডাল বন্ধ হলে বিজ্ঞাপন লজিক রিসেট করা
+            
             mainPlayer.pause();
             mainPlayer.currentTime = 0;
             mainPlayer.src = "";
@@ -492,7 +515,67 @@
         }
         document.getElementById('videoModal').addEventListener('hidden.bs.modal', closeMainPlayer);
         
-        // --- রিলেটেড ভিডিও ফাংশন (XSS Fixes Applied) ---
+        // --- বিজ্ঞাপন নিয়ন্ত্রণ এবং প্রথম থেকেই চালু করার লজিক ---
+        
+        // Ad দেখানোর জন্য র্যান্ডম চেক (ভিডিও চলার মাঝখানে)
+        function checkAndShowAd() {
+            if (!adsEnabled) return; // বিজ্ঞাপন বন্ধ থাকলে চেক করবে না
+            
+            // ২০ থেকে ৪০ সেকেন্ডের মধ্যে একবার চেক করা হবে
+            const randomTime = Math.random() * (40000 - 20000) + 20000; 
+            
+            adCheckTimeout = setTimeout(() => {
+                if (mainPlayer && !mainPlayer.paused && adsEnabled) {
+                    // ভিডিও যদি চলছে এবং adsEnabled থাকে, তাহলে ডিরেক্ট লিঙ্কে নিয়ে যাবে
+                    // ✅ পরিবর্তন: ADSTERRA_DIRECT_LINK ব্যবহার
+                    window.open(ADSTERRA_DIRECT_LINK, '_blank'); 
+                }
+                // পরের চেকের জন্য অপেক্ষা করা
+                checkAndShowAd();
+            }, randomTime);
+        }
+
+        // *** Adsterra পরিবর্তন: যে কোনো ইন্টার‍্যাকশনে ডিরেক্ট লিঙ্কে নিয়ে যাওয়া ***
+        function redirectOnInteraction() {
+            // যেহেতু adsEnabled এখন শুরু থেকেই true, তাই যেকোনো ইন্টার‍্যাকশনেই কাজ করবে
+            if (adsEnabled) { 
+                // ✅ পরিবর্তন: ADSTERRA_DIRECT_LINK ব্যবহার
+                window.open(ADSTERRA_DIRECT_LINK, '_blank'); 
+            }
+        }
+        
+        // মূল Ad লজিক সেটআপ ফাংশন
+        function setupAdLogic() {
+            // *** পরিবর্তন: মোডাল খোলার সাথে সাথেই adsEnabled = true করে দেওয়া হয়েছে ***
+            adsEnabled = true; 
+
+            // যদি আগের কোনো টাইমআউট থাকে, তা ক্লিয়ার করা
+            if (adCheckTimeout) {
+                clearTimeout(adCheckTimeout);
+            }
+            
+            // প্লে ইভেন্ট লিসেনার সেট করা
+            mainPlayer.onplay = () => {
+                // ভিডিও প্লে হলেই র্যান্ডম অ্যাড চেক শুরু করবে (প্রথমবার নয়, মাঝের র্যান্ডম চেক)
+                checkAndShowAd();
+            };
+
+            // *** Adsterra পরিবর্তন: পজ/স্টপ ইভেন্টে ডিরেক্ট লিংক (শুরু থেকেই চালু) ***
+            mainPlayer.onpause = () => {
+                if (adCheckTimeout) {
+                    clearTimeout(adCheckTimeout);
+                    console.log("Ad check paused.");
+                }
+                redirectOnInteraction(); // পজ করলেই ডিরেক্ট লিঙ্কে নিয়ে যাওয়া
+            };
+            
+            // *** Adsterra পরিবর্তন: ভিডিও টেনে নিলে (Seeking) ডিরেক্ট লিংক (শুরু থেকেই চালু) ***
+            mainPlayer.onseeking = () => {
+                redirectOnInteraction(); // টেনে নিলেই ডিরেক্ট লিঙ্কে নিয়ে যাওয়া
+            };
+        }
+        
+        // --- রিলেটেড ভিডিও ফাংশন (যেমন ছিল) ---
         function loadRelatedVideos(currentId) {
             const related = allMovies.filter(m => m.id !== currentId).slice(0, 4); 
             
@@ -504,7 +587,6 @@
             }
 
             related.forEach((m) => {
-                // ডেটাবেসের ডাইনামিক ডেটা ইনজেকশনের আগে escapeHTML ব্যবহার করা হয়েছে
                 const safeTitle = escapeHTML(m.title);
                 const safePoster = escapeHTML(m.poster);
                 const safeVideo = escapeHTML(m.video);
@@ -528,7 +610,7 @@
         }
 
 
-        // --- কার্যকর শেয়ার ফাংশনালিটি (Deprecated Fallback Removed) ---
+        // --- কার্যকর শেয়ার ফাংশনালিটি (যেমন ছিল) ---
         async function handleShare(event, title, movieId) {
             event.stopPropagation(); 
             
@@ -543,7 +625,6 @@
             const textToCopy = `[Link BBC] ${shareData.text} \nLink: ${shareableLink}`;
             let sharedSuccessfully = false;
 
-            // ১. Native Share API (মোবাইলের জন্য সেরা)
             if (navigator.share) {
                 try {
                     await navigator.share(shareData);
@@ -554,7 +635,6 @@
                 }
             } 
 
-            // ২. Clipboard API (ডেস্কটপ এবং আধুনিক ব্রাউজারের জন্য)
             if (!sharedSuccessfully && navigator.clipboard) {
                 try {
                     await navigator.clipboard.writeText(textToCopy);
@@ -566,14 +646,12 @@
                 }
             }
 
-            // [দ্রষ্টব্য: document.execCommand('copy') deprecated হওয়ায় তা বাদ দেওয়া হয়েছে]
-
             if (!sharedSuccessfully) {
                  showToast('শেয়ার বা কপি অপশন কাজ করছে না। ❌', 'error');
             }
         }
 
-        // --- Toast Helper ---
+        // --- Toast Helper (যেমন ছিল) ---
         function showToast(message, type) {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
@@ -590,12 +668,11 @@
             }, 3000);
         }
 
-        // --- Preview Logic ---
+        // --- Preview Logic (যেমন ছিল) ---
         let hoverTimeout;
         function startPreview(card) {
             const video = card.querySelector('.preview-video');
             hoverTimeout = setTimeout(() => {
-                // ব্রাউজারের Autoplay পলিসির কারণে এটি কাজ নাও করতে পারে
                 video.play().catch(() => {});
             }, 300); 
         }
@@ -608,7 +685,7 @@
         }
 
 
-        // --- Search Functionality ---
+        // --- Search Functionality (যেমন ছিল) ---
         const handleSearch = (e) => {
             const val = e.target.value.toLowerCase();
             const filtered = allMovies.filter(m => m.title.toLowerCase().includes(val));
@@ -622,5 +699,5 @@
         if(searchInputMobile) searchInputMobile.addEventListener('keyup', handleSearch);
 
     </script>
-</body>
+
 </html>
